@@ -1,0 +1,300 @@
+template>
+    <!-- Address Information Header -->
+    <div class="slds-grid slds-wrap">
+        <div class="slds-col">
+            <div class="slds-page-header">
+                <h1 class="slds-list_horizontal">
+                    <span class="slds-page-header__title slds-truncate" title="Address Information"
+                        style="width: 100%">Address
+                        Information</span>
+                    <lightning-button class="slds-float_right" label="Edit" title="Edit" slot="actions"
+                        onclick={handleModal}></lightning-button>
+                </h1>
+            </div>
+        </div>
+    </div>
+    <!-- Address Information Details -->
+    <div class="addressInformation">
+        <lightning-record-edit-form record-id={recordId} object-api-name={objectApiName}>
+            <lightning-layout multiple-rows>
+                <template for:each={fieldApiNames} for:item="fieldApiName">
+                    <lightning-layout-item key={fieldApiName} flexibility="auto" padding="around-small" size="6"
+                        large-device-size="6" medium-device-size="6">
+                        <lightning-output-field class="slds-form-element_readonly" field-name={fieldApiName}>
+                        </lightning-output-field>
+                    </lightning-layout-item>
+                </template>
+            </lightning-layout>
+        </lightning-record-edit-form>
+    </div>
+    <!-- Address Search Modal-->
+    <div class="openModal" if:true={openModal}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open" aria-labelledby="modal-heading-01"
+            aria-modal="true" aria-describedby="modal-content-id-1">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse"
+                        title="Close" onclick={closeModal}>
+                        <lightning-icon icon-name="utility:close" alternative-text="close" variant="inverse"
+                            size="small">
+                        </lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 id="modal-heading-01" class="slds-text-heading_medium slds-hyphenate">Address Search</h2>
+                </header>
+                <div class="slds-modal__content slds-var-p-around_medium" id="modal-content-id-1">
+                    <lightning-input type="search" variant="label-hidden" class="searchAddress" name="searchAddress"
+                        placeholder="Search Address.." onchange={handleChange} value={selectedAddress}>
+                    </lightning-input>
+                    <!-- Address Recommendations -->
+                    <div if:true={hasRecommendations}>
+                        <div class="address-recommendations" role="listbox">
+                            <ul class="slds-listbox slds-listbox_vertical slds-dropdown slds-dropdown_fluid"
+                                role="presentation">
+                                <template for:each={addressRecommendations} for:item="addressRecommendation">
+                                    <li key={addressRecommendation} role="presentation"
+                                        onclick={handleAddressRecommendationSelect}
+                                        data-value={addressRecommendation.place_id} class="slds-listbox__item">
+                                        <span
+                                            class="slds-media slds-listbox__option slds-listbox__option_entity slds-listbox__option_has-meta"
+                                            role="option">
+                                            <span class="slds-media__body slds-m-left_xx-small slds-m-bottom_xx-small">
+                                                <div class="slds-grid slds-m-bottom_small">
+                                                    <div class="slds-col slds-size_1-of-10">
+                                                        <lightning-button-icon size="medium" icon-name="utility:checkin"
+                                                            class="slds-input__icon" variant="bare">
+                                                        </lightning-button-icon>
+                                                    </div>
+                                                    <div class="slds-m-left_medium slds-col slds-size_8-of-10">
+                                                        <span
+                                                            class="slds-listbox__option-text slds-listbox__option-text_entity"><b>{addressRecommendation.main_text}</b></span>
+                                                        <span
+                                                            class="slds-listbox__option-text slds-listbox__option-text_entity slds-m-top_xxx-small">{addressRecommendation.secondary_text}</span>
+                                                    </div>
+                                                    <div class="slds-col slds-size_1-of-10"></div>
+                                                </div>
+                                            </span>
+                                        </span>
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button class="slds-button" label="Cancel" onclick={closeModal} variant="neutral">
+                    </lightning-button>
+                    <lightning-button class="slds-button" label="Save" onclick={saveAddress} variant="brand">
+                    </lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </div>
+    <!-- Lightning Spinner -->
+    <div class="showSpinner" if:true={showSpinner}>
+        <lightning-spinner alternative-text="Loading" variant="brand"></lightning-spinner>
+    </div>
+</template>
+addressSearch.js
+import { LightningElement, api } from 'lwc';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
+import getAddressRecommendations from '@salesforce/apex/AddressSearchController.getAddressRecommendations';
+import getAddressDetailsByPlaceId from '@salesforce/apex/AddressSearchController.getAddressDetailsByPlaceId';
+import updateAddressDetails from '@salesforce/apex/AddressSearchController.updateAddressDetails';
+ 
+export default class AddressSearch extends LightningElement {
+    @api recordId;
+    @api objectApiName;
+    openModal = false;
+    showSpinner = false;
+    fieldApiNames = ['BillingStreet', 'BillingCity', 'BillingState', 'BillingPostalCode', 'BillingCountry'];
+    addressRecommendations;
+    selectedAddress = '';
+    addressDetail = {};
+ 
+    get hasRecommendations() {
+        return (this.addressRecommendations !== null && this.addressRecommendations.length);
+    }
+    
+    handleChange(event) {
+        event.preventDefault();
+        let searchText = event.target.value;
+        if (searchText) this.getAddressRecommendations(searchText);
+        else this.addressRecommendations = [];
+    }
+ 
+    getAddressRecommendations(searchText) {
+        getAddressRecommendations({ searchText: searchText })
+            .then(response => {
+                response = JSON.parse(response);
+                let addressRecommendations = [];
+                response.predictions.forEach(prediction => {
+                    addressRecommendations.push({
+                        main_text: prediction.structured_formatting.main_text,
+                        secondary_text: prediction.structured_formatting.secondary_text,
+                        place_id: prediction.place_id,
+                    });
+                });
+                this.addressRecommendations = addressRecommendations;
+            }).catch(error => {
+                console.log('error : ' + JSON.stringify(error));
+            });
+    }
+ 
+    handleAddressRecommendationSelect(event) {
+        event.preventDefault();
+        let placeId = event.currentTarget.dataset.value;
+        this.addressRecommendations = [];
+        this.selectedAddress = '';
+        getAddressDetailsByPlaceId({ placeId: placeId })
+            .then(response => {
+                response = JSON.parse(response);
+                response.result.address_components.forEach(address => {
+                    let type = address.types[0];
+                    switch (type) {
+                        case 'locality':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.city = address.long_name;
+                            break;
+                        case 'country':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.country = address.long_name;
+                            break;
+                        case 'administrative_area_level_1':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.short_name;
+                            this.addressDetail.state = address.short_name;
+                            break;
+                        case 'postal_code':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.postalCode = address.long_name;
+                            break;
+                        case 'sublocality_level_2':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.subLocal2 = address.long_name;
+                            break;
+                        case 'sublocality_level_1':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.subLocal1 = address.long_name;
+                            break;
+                        case 'street_number':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.long_name;
+                            this.addressDetail.streetNumber = address.long_name;
+                            break;
+                        case 'route':
+                            this.selectedAddress = this.selectedAddress + ' ' + address.short_name;
+                            this.addressDetail.route = address.short_name;
+                            break;
+                        default:
+                            break;
+                    }
+                });
+            })
+            .catch(error => {
+                console.log('error : ' + JSON.stringify(error));
+            });
+    }
+    
+    handleModal(event) {
+        event.preventDefault();
+        this.openModal = true;
+        this.addressRecommendations = [];
+    }
+ 
+    closeModal(event) {
+        event.preventDefault();
+        this.openModal = false;
+        this.addressRecommendations = [];
+    }
+ 
+    saveAddress(event) {
+        event.preventDefault();
+        this.openModal = false;
+        this.showSpinner = true;
+        this.addressDetail.Id = this.recordId;
+        updateAddressDetails({ jsonAddress: JSON.stringify(this.addressDetail) })
+            .then(() => {
+                const event = new ShowToastEvent({
+                    title: 'Success',
+                    message: 'Account address is updatd successfully.',
+                    variant: 'success'
+                });
+                this.dispatchEvent(event);
+                this.showSpinner = false;
+            })
+            .catch(error => {
+                const event = new ShowToastEvent({
+                    title: 'Error',
+                    message: 'An error has occured in saving the address.',
+                    variant: 'error'
+                });
+                this.dispatchEvent(event);
+                console.log('error : ' + JSON.stringify(error));
+                this.showSpinner = false;
+            });
+        
+    }
+}
+
+addressSearch.js-meta.xml
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>52.0</apiVersion>
+    <isExposed>true</isExposed>
+    <targets>
+        <target>lightning__RecordPage</target>
+    </targets>
+</LightningComponentBundle>
+Demo:
+Edit the Account Record page, and drag-drop your newly created component addressSearch below the details section.
+
+
+
+
+← Google reCAPTCHA in LWCOTP Verification in Einstein Bots →
+
+
+If you like this blog content and find inciteful, please comment and let me know. 
+
+GOOGLE ADDRESS API IN SALESFORCE GOOGLE MAP API IN SALESFORCE GOOGLE PLACE API IN SALESFORCE INTEGRATE GOOGLE API IN SALESFORCE
+
+Comments
+
+CloudyTushar25 July 2021 at 09:28
+Very informative Blog
+
+REPLY
+
+Unknown6 August 2021 at 19:47
+Thank you for sharing your knowlwdge :)
+
+REPLY
+
+SRDV Technologies | Web Development | Mobile App Development1 November 2021 at 17:53
+Web improvement organization appears to be a wizardry that will make your site stand apart from your rivals. We are known for making incredible and proficient sites that will stand apart from the rest
+Travel Website Development
+TBO API Integration
+
+REPLY
+
+Keerthi5520 December 2021 at 15:14
+Really enjoyed this article.Much thanks again. Want more
+MuleSoft training
+MuleSoft online training
+
+REPLY
+
+lakshmibhucynix20 December 2021 at 15:20
+I really enjoy the blog article.Much thanks again.
+spring boot training
+best spring boot online course
+
+REPLY
+
+Tom18 March 2022 at 04:35
+This comment has been removed by the author.
+
+REPLY
+
+Tom18 March 2022 at 04:38
+This is really cool but I am having trouble restricting access to the Google api key based on http referrer or IP address. The apex call does not seem to come from my SF dom
